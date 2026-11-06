@@ -1,0 +1,32 @@
+# L7 bundles. Unsigned: no certificate on any OS, and no notarization on
+# macOS (CI sets CSC_IDENTITY_AUTO_DISCOVERY=false). Output lands in release/.
+appId: com.itsdanielyc.spike
+productName: spike
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**
+  - package.json
+asar: true
+# No spaces in file names: the installer scripts and CI globs stay simple.
+artifactName: ${productName}-${version}-${arch}.${ext}
+win:
+  target: nsis
+nsis:
+  # Per-user, no prompts: installs to %LOCALAPPDATA%\Programs\<productName>.
+  oneClick: true
+  perMachine: false
+  runAfterFinish: false
+  artifactName: ${productName}-${version}-${arch}-setup.${ext}
+mac:
+  target: dmg
+  identity: null
+  category: public.app-category.developer-tools
+dmg:
+  writeUpdateInfo: false
+linux:
+  target: [deb, AppImage]
+  category: Utility
+  executableName: spike
+publish: null

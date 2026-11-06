@@ -1,0 +1,176 @@
+# Main workflow, in tiers of cost:
+#   unit  (1 Linux job)       L0-L2: type-check every tsconfig, Vitest,
+#                             mock-vs-contract conformance.
+#   ui    (3 OS runners)      L4/L5: Playwright on chromium against the Vite dev
+#                             server and the labelled mock; ARIA, layout
+#                             geometry and per-OS pixel snapshots.
+#   e2e   (6 OS runners)      L6: the built app launched by Playwright's
+#                             Electron support; a screenshot named after the
+#                             OS and CPU the main process reported.
+#   sheet (1 Linux job)       Collects every screenshot into one HTML contact
+#                             sheet so a developer on one OS can see all of them.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Type-check renderer, main process and suites
+        run: npm run typecheck
+      - run: npm run test:unit
+
+  ui:
+    name: ui (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Playwright browser
+        # Ubuntu's apt can stall on a service-restart prompt during
+        # --with-deps; keep it non-interactive and bound each attempt.
+        timeout-minutes: 12
+        shell: bash
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
+        run: |
+          bound=""; command -v timeout >/dev/null && bound="timeout 420"   # macOS has no timeout(1)
+          for attempt in 1 2; do
+            $bound npx playwright install --with-deps chromium && exit 0
+            echo "attempt $attempt failed or stalled; retrying"
+          done
+          exit 1
+      - name: Playwright (chromium, against the mock)
+        env:
+          CI: "1"
+        run: npm run test:ui
+      - name: Upload report and diffs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-${{ matrix.os }}
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+  e2e:
+    name: e2e (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - ubuntu-24.04-arm
+          - windows-latest
+          - windows-11-arm
+          - macos-latest
+          - macos-15-intel
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Linux runtime dependencies
+        if: runner.os == 'Linux'
+        timeout-minutes: 10
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libnss3 libatk-bridge2.0-0t64 libgtk-3-0t64 libgbm1 libasound2t64
+
+      - name: Install
+        run: npm ci
+
+      - name: Electron binary
+        # Electron 45 downloads its binary on first use, not at npm ci; fetch
+        # it here so the download never counts against a test timeout.
+        timeout-minutes: 5
+        run: node node_modules/electron/install.js
+
+      - name: Build the app
+        run: npm run build
+
+      - name: Real-shell E2E (Playwright Electron, Linux under xvfb-run)
+        shell: bash
+        env:
+          CI: "1"
+          NO_AT_BRIDGE: "1"
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a --server-args="-screen 0 1280x1024x24" npm run test:e2e
+          else
+            npm run test:e2e
+          fi
+
+      - name: Upload screenshots and report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-${{ matrix.os }}
+          path: |
+            artifacts/e2e
+            playwright-report/e2e
+            test-results/e2e
+          if-no-files-found: warn
+          retention-days: 7
+
+  sheet:
+    name: contact sheet
+    needs: [e2e]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: e2e-*
+          path: shots
+      - run: node scripts/contact-sheet.mjs shots contact-sheet.html
+      - uses: actions/upload-artifact@v7
+        with:
+          name: contact-sheet
+          path: contact-sheet.html
+          retention-days: 14

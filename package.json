@@ -1,0 +1,36 @@
+{
+  "name": "spike",
+  "productName": "spike",
+  "private": true,
+  "version": "0.1.0",
+  "description": "spike: an Electron app scaffolded by Keel",
+  "author": "itsdanielyc <itsdanielyc@users.noreply.github.com>",
+  "license": "MIT",
+  "type": "module",
+  "main": "out/main/main.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "dev:web": "vite",
+    "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json && tsc -p tests/tsconfig.json",
+    "build": "npm run typecheck && electron-vite build",
+    "start": "electron-vite preview",
+    "package": "npm run build && electron-builder --publish never",
+    "test:unit": "vitest run",
+    "test:ui": "playwright test",
+    "test:ui:update": "cross-env UPDATE_SNAPSHOTS=1 playwright test --update-snapshots=all",
+    "test:e2e": "playwright test -c playwright.e2e.config.ts",
+    "contact-sheet": "node scripts/contact-sheet.mjs",
+    "triage": "node scripts/triage.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.0",
+    "@types/node": "^24.19.2",
+    "cross-env": "^10.1.0",
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0",
+    "electron-vite": "^6.0.0",
+    "typescript": "~6.0.3",
+    "vite": "^8.0.16",
+    "vitest": "^5.1.0"
+  }
+}

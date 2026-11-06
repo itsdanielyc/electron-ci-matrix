@@ -1,0 +1,72 @@
+# L7: release bundles on the three OS families, installed and launched the
+# way a user would. Costs a packaging run per OS, so it runs on main and on
+# demand, not on every pull request. Unsigned on every OS; no notarization.
+name: installers
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: installers-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  installers:
+    name: installers (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    env:
+      # No certificate lookup in the keychain, so macOS builds stay unsigned
+      # (ad hoc) and electron-builder never tries to notarize.
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Linux build and runtime dependencies
+        if: runner.os == 'Linux'
+        timeout-minutes: 10
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libnss3 libatk-bridge2.0-0t64 libgtk-3-0t64 libgbm1 libasound2t64 libfuse2t64
+      - run: npm ci
+      - name: Build and package (nsis | dmg | deb + AppImage)
+        run: npm run package
+      - name: Install, launch, uninstall (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/installer-test.ps1
+      - name: Install, launch, uninstall (macOS)
+        if: runner.os == 'macOS'
+        run: bash scripts/installer-test.sh
+      - name: Install, launch, uninstall (Linux, under xvfb-run)
+        if: runner.os == 'Linux'
+        env:
+          NO_AT_BRIDGE: "1"
+        run: xvfb-run -a --server-args="-screen 0 1280x1024x24" bash scripts/installer-test.sh
+      - name: Upload bundles
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: bundles-${{ matrix.os }}
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.deb
+            release/*.AppImage
+          if-no-files-found: warn
+          retention-days: 7

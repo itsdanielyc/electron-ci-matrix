@@ -1,0 +1,21 @@
+- main:
+  - heading "Welcome to Electron" [level=1]
+  - link "Vite logo":
+    - /url: https://vite.dev
+    - img "Vite logo"
+  - link "Electron logo":
+    - /url: https://www.electronjs.org
+    - img "Electron logo"
+  - link "typescript logo":
+    - /url: https://www.typescriptlang.org/docs
+    - img "typescript logo"
+  - paragraph: Click on the Electron logo to learn more about the framework
+  - form "Greet":
+    - textbox "Name":
+      - /placeholder: Enter a name...
+    - button "Greet"
+    - button "Clear"
+  - paragraph
+  - text: "backend:"
+  - strong: mock
+  - text: "platform: mock / mock"
