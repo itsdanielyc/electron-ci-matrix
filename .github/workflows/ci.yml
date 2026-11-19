@@ -1,6 +1,6 @@
 # Main workflow, in tiers of cost:
-#   unit  (1 Linux job)       L0-L2: type-check every tsconfig, Vitest,
-#                             mock-vs-contract conformance.
+#   unit  (1 Linux job)       L0-L2: lint (types, ESLint size limits, dead
+#                             code), Vitest, mock-vs-contract conformance.
 #   ui    (3 OS runners)      L4/L5: Playwright on chromium against the Vite dev
 #                             server and the labelled mock; ARIA, layout
 #                             geometry and per-OS pixel snapshots.
@@ -36,8 +36,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Type-check renderer, main process and suites
-        run: npm run typecheck
+      - name: Lint (type-check every tsconfig, ESLint with the size limits, knip for dead code)
+        run: npm run lint
       - run: npm run test:unit
 
   ui:

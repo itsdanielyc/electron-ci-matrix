@@ -3,6 +3,18 @@
 // is the one engine; CI runs it on all three OS runners.
 import { defineConfig, devices } from "@playwright/test";
 
+// The suite serves the app on a port of its own, derived from this checkout's
+// path, and never reuses a server that is already listening. Two projects, or
+// two worktrees of one, can then run on one machine without one suite testing
+// the other's app. UI_PORT overrides it.
+function uiPort(): number {
+  if (process.env.UI_PORT) return Number(process.env.UI_PORT);
+  let hash = 0;
+  for (const ch of process.cwd()) hash = (hash * 31 + ch.charCodeAt(0)) % 10_000;
+  return 20_000 + hash;
+}
+const port = uiPort();
+
 export default defineConfig({
   testDir: "tests/ui",
   fullyParallel: true,
@@ -22,7 +34,7 @@ export default defineConfig({
     },
   },
   use: {
-    baseURL: "http://localhost:1420",
+    baseURL: `http://localhost:${port}`,
     viewport: { width: 1024, height: 700 },
     deviceScaleFactor: 1,
     trace: "retain-on-failure",
@@ -32,9 +44,9 @@ export default defineConfig({
     { name: "chromium", use: { ...devices["Desktop Chrome"], viewport: { width: 1024, height: 700 } } },
   ],
   webServer: {
-    command: "npm run dev:web -- --strictPort --port 1420",
-    url: "http://localhost:1420",
-    reuseExistingServer: !process.env.CI,
+    command: `npm run dev:web -- --strictPort --port ${port}`,
+    url: `http://localhost:${port}`,
+    reuseExistingServer: false,
     timeout: 60_000,
   },
 });

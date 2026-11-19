@@ -24,7 +24,7 @@ for (const job of failed) {
   const step = (job.steps ?? []).find((s) => s.conclusion === "failure");
   out.push("");
   out.push(`## ${job.name}: ${job.conclusion}${step ? ` at step "${step.name}"` : ""}`);
-  let log = "";
+  let log;
   try {
     log = sh("gh", ["run", "view", runId, "-R", repo, "--job", String(job.databaseId), "--log-failed"]);
   } catch {
@@ -44,7 +44,7 @@ for (const job of failed) {
 let artifacts = [];
 try {
   artifacts = JSON.parse(sh("gh", ["api", `repos/${repo}/actions/runs/${runId}/artifacts`, "--jq", "[.artifacts[].name]"]));
-} catch {}
+} catch { /* a run with no artifacts yet: the digest goes without the list */ }
 if (artifacts.length) {
   out.push("");
   out.push(`artifacts: ${artifacts.join(", ")}`);

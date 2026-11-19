@@ -46,6 +46,20 @@ jobs:
         env:
           CI: "1"
         run: npm run test:ui:update
+      - name: Keep only what this runner captured
+        # The checkout also holds the other platforms' pixel baselines. Left
+        # in the upload, those stale copies would overwrite the fresh ones
+        # when the sets are merged. Pixel baselines end in -<platform>.png.
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Linux) platform=linux ;;
+            Windows) platform=win32 ;;
+            macOS) platform=darwin ;;
+            *) echo "unknown runner OS $RUNNER_OS"; exit 1 ;;
+          esac
+          find tests/ui/__snapshots__ -type f -name "*.png" ! -name "*-$platform.png" -delete
+          find tests/ui/__snapshots__ -type f | sort
       - uses: actions/upload-artifact@v7
         with:
           name: snapshots-${{ matrix.os }}
@@ -63,9 +77,17 @@ jobs:
         with:
           pattern: snapshots-*
           path: incoming
-      - name: Merge the three capture sets
+      - name: Merge the capture sets
+        # Each set holds its own platform's pixel baselines and a copy of the
+        # shared ARIA and geometry snapshots; the last set in name order
+        # supplies the shared ones. A single set arrives without its folder.
+        shell: bash
         run: |
-          for d in incoming/snapshots-*; do cp -R "$d"/. tests/ui/__snapshots__/; done
+          shopt -s nullglob
+          sets=(incoming/snapshots-*/)
+          [ ${#sets[@]} -gt 0 ] || sets=(incoming/)
+          mkdir -p tests/ui/__snapshots__
+          for d in "${sets[@]}"; do cp -R "$d". tests/ui/__snapshots__/; done
           git status --short tests/ui/__snapshots__
       - name: Commit the baselines
         env:
