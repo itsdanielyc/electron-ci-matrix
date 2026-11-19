@@ -6,7 +6,6 @@ import { _electron as electron, expect, test, type ElectronApplication, type Pag
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { greeting } from "../../contracts/greet";
-import type { PlatformInfo } from "../../electron/bridge";
 
 let app: ElectronApplication;
 let win: Page;
@@ -65,7 +64,7 @@ test.describe("spike in the real shell", () => {
     expect(["x64", "arm64"]).toContain(main.arch);
     expect(main.packaged).toBe(false);
 
-    const viaBridge = (await win.evaluate(() => window.electronBridge!.platformInfo())) as PlatformInfo;
+    const viaBridge = await win.evaluate(() => window.electronBridge!.platformInfo());
     expect(viaBridge).toMatchObject(main);
     await expect(win.getByTestId("platform")).toHaveText(`${main.os} / ${main.arch}`);
 
@@ -74,6 +73,39 @@ test.describe("spike in the real shell", () => {
     const file = join(dir, `${main.os}-${main.arch}.png`);
     await win.screenshot({ path: file });
     console.log(`[e2e] screenshot saved: ${file}`);
+  });
+
+  test("the main process rejects a malformed argument instead of coercing it", async () => {
+    // Straight through the bridge with a number where the contract says string.
+    const outcome = await win.evaluate(() =>
+      window.electronBridge!.greet(42 as unknown as string).then(
+        (text) => `answered: ${text}`,
+        (error: unknown) => `rejected: ${String(error)}`,
+      ),
+    );
+    expect(outcome).toContain("rejected:");
+    expect(outcome).toContain("name must be a string");
+  });
+
+  test("ships a content security policy with no dev-server allowance", async () => {
+    const csp = await win.locator('meta[http-equiv="Content-Security-Policy"]').getAttribute("content");
+    expect(csp).toContain("default-src 'self'");
+    expect(csp).not.toMatch(/ws:|wss:|localhost|127.0.0.1|unsafe-eval/);
+  });
+
+  test("a built page with no preload bridge stops with an error, never the mock", async () => {
+    // The same built renderer in a second window that has no preload.
+    const page = join(process.cwd(), "out", "renderer", "index.html");
+    const [orphan] = await Promise.all([
+      app.waitForEvent("window"),
+      app.evaluate(async ({ BrowserWindow }, file) => {
+        const bare = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true } });
+        await bare.loadFile(file);
+      }, page),
+    ]);
+    await expect(orphan.getByRole("alert")).toContainText("could not reach its main process");
+    await expect(orphan.getByTestId("backend-badge")).toHaveCount(0);
+    await orphan.close();
   });
 
   test("logged no console errors (CSP violations, failed loads)", async () => {

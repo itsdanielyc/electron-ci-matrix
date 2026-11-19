@@ -1,6 +1,6 @@
 # Main workflow, in tiers of cost:
-#   unit  (1 Linux job)       L0-L2: type-check every tsconfig, Vitest,
-#                             mock-vs-contract conformance.
+#   unit  (1 Linux job)       L0-L2: lint (types, ESLint size limits, dead
+#                             code), Vitest, mock-vs-contract conformance.
 #   ui    (3 OS runners)      L4/L5: Playwright on chromium against the Vite dev
 #                             server and the labelled mock; ARIA, layout
 #                             geometry and per-OS pixel snapshots.
@@ -36,14 +36,14 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Type-check renderer, main process and suites
-        run: npm run typecheck
+      - name: Lint (type-check every tsconfig, ESLint with the size limits, knip for dead code)
+        run: npm run lint
       - run: npm run test:unit
 
   ui:
     name: ui (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -57,17 +57,30 @@ jobs:
       - run: npm ci
       - name: Playwright browser
         # Ubuntu's apt can stall on a service-restart prompt during
-        # --with-deps; keep it non-interactive and bound each attempt.
-        timeout-minutes: 12
+        # --with-deps (kept non-interactive below) and its mirror can be slow:
+        # on ubuntu-26.04 the WebKit packages alone are 140 MB and took over
+        # 7 minutes. Each attempt is bounded and the retry waits for apt.
+        timeout-minutes: 32
         shell: bash
         env:
           DEBIAN_FRONTEND: noninteractive
           NEEDRESTART_MODE: a
         run: |
-          bound=""; command -v timeout >/dev/null && bound="timeout 420"   # macOS has no timeout(1)
+          bound=""; command -v timeout >/dev/null && bound="timeout 600"   # macOS has no timeout(1)
           for attempt in 1 2; do
             $bound npx playwright install --with-deps chromium && exit 0
-            echo "attempt $attempt failed or stalled; retrying"
+            echo "attempt $attempt failed or stalled"
+            [ "$attempt" = 2 ] && break
+            # A timed-out attempt leaves its apt-get running with the dpkg lock
+            # held, so a retry would fail at once. A slow package mirror is the
+            # usual cause: let that apt-get finish, then the retry finds the
+            # packages in place and only fetches the browsers.
+            if command -v apt-get >/dev/null; then
+              for i in $(seq 60); do
+                pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null || break
+                sleep 10
+              done
+            fi
           done
           exit 1
       - name: Playwright (chromium, against the mock)
